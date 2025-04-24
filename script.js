@@ -1,7 +1,9 @@
+/* GSAP Animations for UI */
 gsap.from('header', { opacity: 0, y: -50, duration: 1, ease: 'power3.out' });
 gsap.from('main', { opacity: 0, scale: 0.95, duration: 1, delay: 0.3, ease: 'power3.out' });
 gsap.from('#sidebar', { x: -250, duration: 1, ease: 'power3.out' });
 
+/* Theme Toggle */
 const themeToggle = document.getElementById('themeToggle');
 themeToggle.addEventListener('click', () => {
     document.documentElement.classList.toggle('dark');
@@ -11,6 +13,7 @@ if (localStorage.getItem('theme') === 'dark') {
     document.documentElement.classList.add('dark');
 }
 
+/* Sidebar Toggle */
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebarToggle');
 const mobileSidebarToggle = document.getElementById('mobileSidebarToggle');
@@ -26,6 +29,7 @@ function toggleSidebar() {
     });
 }
 
+/* Section Navigation */
 const sections = {
     imageToPdf: document.getElementById('imageToPdfSection'),
     pdfToImage: document.getElementById('pdfToImageSection'),
@@ -62,7 +66,51 @@ Object.keys(navButtons).forEach(key => {
     });
 });
 
-// Image to PDF Logic
+/* Utility Functions */
+function showError(message) {
+    const errorMessage = document.getElementById('errorMessage');
+    errorMessage.textContent = message;
+    errorMessage.classList.remove('hidden');
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast error';
+    gsap.to(toast, { opacity: 1, duration: 0.3, onComplete: () => {
+        setTimeout(() => gsap.to(toast, { opacity: 0, duration: 0.3 }), 3000);
+    }});
+}
+
+function clearError() {
+    const errorMessage = document.getElementById('errorMessage');
+    errorMessage.textContent = '';
+    errorMessage.classList.add('hidden');
+}
+
+function showSuccess(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast success';
+    gsap.to(toast, { opacity: 1, duration: 0.3, onComplete: () => {
+        setTimeout(() => gsap.to(toast, { opacity: 0, duration: 0.3 }), 3000);
+    }});
+}
+
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Error reading file'));
+        reader.readAsDataURL(file);
+    });
+}
+
+/* Configure pdf.js */
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+} else {
+    console.error('pdfjsLib is not loaded. Please check CDN.');
+}
+
+/* Image to PDF Logic */
 const imageInput = document.getElementById('imageInput');
 const dropZone = document.getElementById('dropZone');
 const imagePreview = document.getElementById('imagePreview');
@@ -160,6 +208,13 @@ async function generatePDF() {
     progressBar.style.display = 'block';
     clearError();
 
+    if (!window.jspdf) {
+        showError('jsPDF library not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
+
     const { jsPDF } = window.jspdf;
     const margin = parseInt(document.getElementById('margin').value) || 10;
     const fileName = document.getElementById('fileName').value || 'converted';
@@ -174,29 +229,35 @@ async function generatePDF() {
     const usableWidth = pageWidth - 2 * margin;
     const usableHeight = pageHeight - 2 * margin;
 
-    for (let i = 0; i < images.length; i++) {
-        if (i > 0) doc.addPage();
-        const imgData = await readFileAsDataURL(images[i].file);
-        const imgProps = doc.getImageProperties(imgData);
-        let imgWidth = usableWidth;
-        let imgHeight = (imgProps.height * usableWidth) / imgProps.width;
+    try {
+        for (let i = 0; i < images.length; i++) {
+            if (i > 0) doc.addPage();
+            const imgData = await readFileAsDataURL(images[i].file);
+            const imgProps = doc.getImageProperties(imgData);
+            let imgWidth = usableWidth;
+            let imgHeight = (imgProps.height * usableWidth) / imgProps.width;
 
-        if (imgHeight > usableHeight) {
-            imgHeight = usableHeight;
-            imgWidth = (imgProps.width * usableHeight) / imgProps.height;
+            if (imgHeight > usableHeight) {
+                imgHeight = usableHeight;
+                imgWidth = (imgProps.width * usableHeight) / imgProps.height;
+            }
+
+            doc.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
+            progressBarFill.style.width = `${((i + 1) / images.length) * 100}%`;
         }
 
-        doc.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
-        progressBarFill.style.width = `${((i + 1) / images.length) * 100}%`;
+        doc.save(`${fileName}_${new Date().toISOString().split('T')[0]}.pdf`);
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        showSuccess('PDF generated successfully!');
+    } catch (error) {
+        showError('Error generating PDF: ' + error.message);
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
     }
-
-    doc.save(`${fileName}_${new Date().toISOString().split('T')[0]}.pdf`);
-    loader.style.display = 'none';
-    progressBar.style.display = 'none';
-    showSuccess('PDF generated successfully!');
 }
 
-// PDF to Image Logic
+/* PDF to Image Logic */
 const pdfInput = document.getElementById('pdfInput');
 const pdfDropZone = document.getElementById('pdfDropZone');
 const pdfPreview = document.getElementById('pdfPreview');
@@ -247,13 +308,19 @@ async function convertPdfToImages(pdfData, originalFileName) {
     progressBar.style.display = 'block';
     clearError();
 
-    const fileNamePrefix = document.getElementById('pdfFileName').value || 'extracted';
-    const zip = new JSZip();
+    if (!pdfjsLib) {
+        showError('PDF.js library not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
 
     try {
         const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
         const numPages = pdf.numPages;
         const images = [];
+        const zip = new JSZip();
+        const fileNamePrefix = document.getElementById('pdfFileName').value || 'extracted';
 
         for (let pageNum = 1; pageNum <= numPages; pageNum++) {
             const page = await pdf.getPage(pageNum);
@@ -293,7 +360,7 @@ async function convertPdfToImages(pdfData, originalFileName) {
         progressBar.style.display = 'none';
         showSuccess('Images extracted successfully!');
     } catch (error) {
-        showError('Error converting PDF to images.');
+        showError('Error converting PDF to images: ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
@@ -306,7 +373,7 @@ function downloadSingleImage(imgData, fileName) {
     link.click();
 }
 
-// Excel to PDF Logic
+/* Excel to PDF Logic */
 const excelInput = document.getElementById('excelInput');
 const excelDropZone = document.getElementById('excelDropZone');
 
@@ -356,6 +423,13 @@ async function convertExcelToPdf(data) {
     progressBar.style.display = 'block';
     clearError();
 
+    if (!XLSX || !window.jspdf) {
+        showError('Required libraries (XLSX or jsPDF) not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
+
     try {
         const workbook = XLSX.read(data, { type: 'array' });
         const { jsPDF } = window.jspdf;
@@ -399,13 +473,13 @@ async function convertExcelToPdf(data) {
         progressBar.style.display = 'none';
         showSuccess('Excel converted to PDF successfully!');
     } catch (error) {
-        showError('Error converting Excel to PDF.');
+        showError('Error converting Excel to PDF: ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
 }
 
-// PDF to Excel Logic
+/* PDF to Excel Logic */
 const pdfExcelInput = document.getElementById('pdfExcelInput');
 const pdfExcelDropZone = document.getElementById('pdfExcelDropZone');
 
@@ -455,6 +529,13 @@ async function convertPdfToExcel(pdfData) {
     progressBar.style.display = 'block';
     clearError();
 
+    if (!pdfjsLib || !XLSX) {
+        showError('Required libraries (PDF.js or XLSX) not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
+
     try {
         const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
         const numPages = pdf.numPages;
@@ -479,13 +560,13 @@ async function convertPdfToExcel(pdfData) {
         progressBar.style.display = 'none';
         showSuccess('PDF converted to Excel successfully!');
     } catch (error) {
-        showError('Error converting PDF to Excel. Note: Works best with text-based PDFs.');
+        showError('Error converting PDF to Excel: Works best with text-based PDFs. ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
 }
 
-// PDF to Word Logic
+/* PDF to Word Logic */
 const pdfWordInput = document.getElementById('pdfWordInput');
 const pdfWordDropZone = document.getElementById('pdfWordDropZone');
 
@@ -535,6 +616,13 @@ async function convertPdfToWord(pdfData) {
     progressBar.style.display = 'block';
     clearError();
 
+    if (!pdfjsLib || !docx) {
+        showError('Required libraries (PDF.js or docx) not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
+
     try {
         const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
         const numPages = pdf.numPages;
@@ -570,13 +658,13 @@ async function convertPdfToWord(pdfData) {
         progressBar.style.display = 'none';
         showSuccess('PDF converted to Word successfully!');
     } catch (error) {
-        showError('Error converting PDF to Word. Note: Works best with text-based PDFs.');
+        showError('Error converting PDF to Word: Works best with text-based PDFs. ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
 }
 
-// Word to PDF Logic
+/* Word to PDF Logic */
 const wordInput = document.getElementById('wordInput');
 const wordDropZone = document.getElementById('wordDropZone');
 
@@ -627,28 +715,19 @@ async function convertWordToPdf(arrayBuffer) {
     clearError();
 
     try {
-        const { jsPDF } = window.jspdf;
-        const fileName = document.getElementById('wordFileName').value || 'word_to_pdf';
-        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-
-        // Placeholder: Convert Word to PDF (requires server-side processing or advanced library)
-        showError('Word to PDF conversion is not fully supported in this version. Please use a dedicated tool like Smallpdf or iLovePDF.');
+        showError('Word to PDF conversion requires server-side processing. Please use tools like Smallpdf or iLovePDF for now.');
         loader.style.display = 'none';
         progressBar.style.display = 'none';
+        // Suggestion: Implement server-side processing with Node.js and libraries like 'libreoffice-convert'
         return;
-
-        doc.save(`${fileName}_${new Date().toISOString().split('T')[0]}.pdf`);
-        loader.style.display = 'none';
-        progressBar.style.display = 'none';
-        showSuccess('Word converted to PDF successfully!');
     } catch (error) {
-        showError('Error converting Word to PDF.');
+        showError('Error converting Word to PDF: ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
 }
 
-// PDF to PPT Logic
+/* PDF to PPT Logic */
 const pdfPptInput = document.getElementById('pdfPptInput');
 const pdfPptDropZone = document.getElementById('pdfPptDropZone');
 
@@ -699,18 +778,19 @@ async function convertPdfToPpt(pdfData) {
     clearError();
 
     try {
-        showError('PDF to PPT conversion is not fully supported in this version. Please use a dedicated tool like Smallpdf or Adobe Acrobat.');
+        showError('PDF to PPT conversion requires server-side processing. Please use tools like Smallpdf or Adobe Acrobat for now.');
         loader.style.display = 'none';
         progressBar.style.display = 'none';
+        // Suggestion: Use server-side tools like 'unoconv' or APIs like Adobe Document Cloud
         return;
     } catch (error) {
-        showError('Error converting PDF to PPT.');
+        showError('Error converting PDF to PPT: ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
 }
 
-// PPT to PDF Logic
+/* PPT to PDF Logic */
 const pptInput = document.getElementById('pptInput');
 const pptDropZone = document.getElementById('pptDropZone');
 
@@ -761,20 +841,22 @@ async function convertPptToPdf(arrayBuffer) {
     clearError();
 
     try {
-        showError('PPT to PDF conversion is not fully supported in this version. Please use a dedicated tool like Smallpdf or Adobe Acrobat.');
+        showError('PPT to PDF conversion requires server-side processing. Please use tools like Smallpdf or Adobe Acrobat for now.');
         loader.style.display = 'none';
         progressBar.style.display = 'none';
+        // Suggestion: Use server-side tools like 'unoconv' or APIs like Microsoft Graph
         return;
     } catch (error) {
-        showError('Error converting PPT to PDF.');
+        showError('Error converting PPT to PDF: ' + error.message);
         loader.style.display = 'none';
         progressBar.style.display = 'none';
     }
 }
 
-// PDF to JPG Logic
+/* PDF to JPG Logic */
 const pdfJpgInput = document.getElementById('pdfJpgInput');
 const pdfJpgDropZone = document.getElementById('pdfJpgDropZone');
+const pdfJpgPreview = document.getElementById('pdfPreview'); // Reuse pdfPreview for simplicity
 
 pdfJpgDropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -787,4 +869,242 @@ pdfJpgDropZone.addEventListener('dragleave', () => {
 
 pdfJpgDropZone.addEventListener('drop', (e) => {
     e.preventDefault();
-    pdfJpgDrop
+    pdfJpgDropZone.classList.remove('dragover');
+    handlePdfJpgFile(e.dataTransfer.files[0]);
+});
+
+pdfJpgDropZone.addEventListener('click', () => pdfJpgInput.click());
+
+pdfJpgInput.addEventListener('change', () => handlePdfJpgFile(pdfJpgInput.files[0]));
+
+async function handlePdfJpgFile(file) {
+    clearError();
+    if (!file || file.type !== 'application/pdf') {
+        showError('Please upload a valid PDF file.');
+        return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+        showError('PDF size should be less than 20MB.');
+        return;
+    }
+
+    const fileReader = new FileReader();
+    fileReader.onload = async () => {
+        const pdfData = new Uint8Array(fileReader.result);
+        await convertPdfToJpg(pdfData);
+    };
+    fileReader.readAsArrayBuffer(file);
+}
+
+async function convertPdfToJpg(pdfData) {
+    const loader = document.getElementById('loader');
+    const progressBar = document.getElementById('pdfJpgProgressBar');
+    const progressBarFill = document.getElementById('pdfJpgProgressBarFill');
+    loader.style.display = 'block';
+    progressBar.style.display = 'block';
+    clearError();
+
+    if (!pdfjsLib || !JSZip) {
+        showError('Required libraries (PDF.js or JSZip) not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
+
+    try {
+        const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        const numPages = pdf.numPages;
+        const images = [];
+        const zip = new JSZip();
+        const fileNamePrefix = document.getElementById('pdfJpgFileName').value || 'pdf_to_jpg';
+
+        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+            const imgData = canvas.toDataURL('image/jpeg', 0.9); // JPEG with high quality
+            images.push({ data: imgData, page: pageNum });
+
+            const imgElement = document.createElement('div');
+            imgElement.className = 'relative';
+            imgElement.setAttribute('role', 'listitem');
+            imgElement.innerHTML = `
+                <img src="${imgData}" alt="Page ${pageNum} preview" class="cursor-pointer">
+                <button onclick="downloadSingleImage('${imgData}', '${fileNamePrefix}_page${pageNum}.jpg')" class="absolute top-2 right-2 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center remove-btn" aria-label="Download image">↓</button>
+            `;
+            pdfJpgPreview.appendChild(imgElement);
+            gsap.from(imgElement, { opacity: 0, y: 20, duration: 0.5, ease: 'power2.out' });
+
+            zip.file(`${fileNamePrefix}_page${pageNum}.jpg`, imgData.split(',')[1], { base64: true });
+            progressBarFill.style.width = `${(pageNum / numPages) * 100}%`;
+        }
+
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const zipUrl = URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        link.href = zipUrl;
+        link.download = `${fileNamePrefix}_images.zip`;
+        link.click();
+        URL.revokeObjectURL(zipUrl);
+
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        showSuccess('PDF converted to JPG successfully!');
+    } catch (error) {
+        showError('Error converting PDF to JPG: ' + error.message);
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+    }
+}
+
+/* JPG to PDF Logic */
+const jpgInput = document.getElementById('jpgInput');
+const jpgDropZone = document.getElementById('jpgDropZone');
+const jpgPreview = document.getElementById('jpgPreview');
+let jpgImages = [];
+
+jpgDropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    jpgDropZone.classList.add('dragover');
+});
+
+jpgDropZone.addEventListener('dragleave', () => {
+    jpgDropZone.classList.remove('dragover');
+});
+
+jpgDropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    jpgDropZone.classList.remove('dragover');
+    handleJpgFiles(e.dataTransfer.files);
+});
+
+jpgDropZone.addEventListener('click', () => jpgInput.click());
+
+jpgInput.addEventListener('change', () => handleJpgFiles(jpgInput.files));
+
+function handleJpgFiles(files) {
+    clearError();
+    const validTypes = ['image/jpeg'];
+    const maxSize = 10 * 1024 * 1024; // 10MB
+
+    for (let file of files) {
+        if (!validTypes.includes(file.type)) {
+            showError('Please upload only JPEG images.');
+            return;
+        }
+        if (file.size > maxSize) {
+            showError('File size should be less than 10MB.');
+            return;
+        }
+
+        new Compressor(file, {
+            quality: 0.9,
+            maxWidth: 1920,
+            maxHeight: 1920,
+            success(compressedFile) {
+                const imgData = URL.createObjectURL(compressedFile);
+                jpgImages.push({ file: compressedFile, data: imgData });
+                renderJpgImages();
+            },
+            error() {
+                showError('Error compressing JPG image.');
+            }
+        });
+    }
+}
+
+function renderJpgImages() {
+    jpgPreview.innerHTML = '';
+    jpgImages.forEach((img, index) => {
+        const imgElement = document.createElement('div');
+        imgElement.className = 'relative';
+        imgElement.setAttribute('role', 'listitem');
+        imgElement.innerHTML = `
+            <img src="${img.data}" alt="JPG preview ${index + 1}" class="cursor-move">
+            <button onclick="removeJpgImage(${index})" class="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center remove-btn" aria-label="Remove image">×</button>
+        `;
+        jpgPreview.appendChild(imgElement);
+        gsap.from(imgElement, { opacity: 0, y: 20, duration: 0.5, ease: 'power2.out' });
+    });
+
+    new Sortable(jpgPreview, {
+        animation: 200,
+        handle: 'img',
+        onEnd: (evt) => {
+            const movedImage = jpgImages.splice(evt.oldIndex, 1)[0];
+            jpgImages.splice(evt.newIndex, 0, movedImage);
+        }
+    });
+}
+
+function removeJpgImage(index) {
+    jpgImages.splice(index, 1);
+    renderJpgImages();
+}
+
+async function convertJpgToPdf() {
+    if (jpgImages.length === 0) {
+        showError('Please upload at least one JPG image.');
+        return;
+    }
+
+    const loader = document.getElementById('loader');
+    const progressBar = document.getElementById('jpgProgressBar');
+    const progressBarFill = document.getElementById('jpgProgressBarFill');
+    loader.style.display = 'block';
+    progressBar.style.display = 'block';
+    clearError();
+
+    if (!window.jspdf) {
+        showError('jsPDF library not loaded. Please check CDN.');
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const fileName = document.getElementById('jpgFileName').value || 'jpg_to_pdf';
+    const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
+    const usableWidth = pageWidth - 2 * margin;
+    const usableHeight = pageHeight - 2 * margin;
+
+    try {
+        for (let i = 0; i < jpgImages.length; i++) {
+            if (i > 0) doc.addPage();
+            const imgData = await readFileAsDataURL(jpgImages[i].file);
+            const imgProps = doc.getImageProperties(imgData);
+            let imgWidth = usableWidth;
+            let imgHeight = (imgProps.height * usableWidth) / imgProps.width;
+
+            if (imgHeight > usableHeight) {
+                imgHeight = usableHeight;
+                imgWidth = (imgProps.width * usableHeight) / imgProps.height;
+            }
+
+            doc.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
+            progressBarFill.style.width = `${((i + 1) / jpgImages.length) * 100}%`;
+        }
+
+        doc.save(`${fileName}_${new Date().toISOString().split('T')[0]}.pdf`);
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+        showSuccess('JPG converted to PDF successfully!');
+    } catch (error) {
+        showError('Error converting JPG to PDF: ' + error.message);
+        loader.style.display = 'none';
+        progressBar.style.display = 'none';
+    }
+}
